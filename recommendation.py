@@ -28,7 +28,15 @@ def collaborative_filtering_recommendations(data, user_col, item_col, rating_col
     df = data.copy()
     
     # Prepare the data for Surprise
-    reader = Reader(rating_scale=(df[rating_col].min(), df[rating_col].max()))
+    # Ensure we have valid data
+    if len(df) == 0:
+        return {}, {'rmse': 0, 'mae': 0}
+        
+    # Get rating scale with safety checks
+    min_rating = df[rating_col].min() if not df[rating_col].empty else 1
+    max_rating = df[rating_col].max() if not df[rating_col].empty else 5
+    
+    reader = Reader(rating_scale=(min_rating, max_rating))
     data = Dataset.load_from_df(df[[user_col, item_col, rating_col]], reader)
     
     # Build full trainset for better accuracy
