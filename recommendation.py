@@ -31,15 +31,12 @@ def collaborative_filtering_recommendations(data, user_col, item_col, rating_col
     reader = Reader(rating_scale=(df[rating_col].min(), df[rating_col].max()))
     data = Dataset.load_from_df(df[[user_col, item_col, rating_col]], reader)
     
-    # Take an even smaller sample for very fast training
-    raw_trainset = data.build_full_trainset()
-    sample_size = min(5000, len(list(raw_trainset.all_ratings())))
+    # Build full trainset for better accuracy
+    trainset = data.build_full_trainset()
+    testset = trainset.build_testset()
     
-    # Use minimal test size and iterations for fast training
-    trainset, testset = surprise_train_test_split(data, test_size=0.05, random_state=42)
-    
-    # Train the model with minimal parameters
-    model = SVD(n_factors=5, n_epochs=3, lr_all=0.01, random_state=42)
+    # Train the model with optimized parameters
+    model = SVD(n_factors=50, n_epochs=10, lr_all=0.005, reg_all=0.02, random_state=42)
     model.fit(trainset)
     
     # Evaluate the model
