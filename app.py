@@ -870,7 +870,7 @@ elif page == "Recommendation Engine":
                     segment_col = 'segment' if 'segment' in segmented_data.columns else ('cluster' if 'cluster' in segmented_data.columns else 'rfm_segment')
                     
                     # Display available segments
-                    st.write(f"Available segments: {', '.join(segmented_data[segment_col].unique())}")
+                    st.write(f"Available segments: {', '.join(map(str, segmented_data[segment_col].unique()))}")
                     
                     # Identify item columns
                     item_cols = [col for col in segmented_data.columns if 'item' in col.lower() or 'product' in col.lower() or 'content' in col.lower()]
