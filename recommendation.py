@@ -33,7 +33,7 @@ def collaborative_filtering_recommendations(data, user_col, item_col, rating_col
     
     # Take a smaller sample for faster training
     raw_trainset = data.build_full_trainset()
-    sample_size = min(10000, len(raw_trainset.all_ratings()))
+    sample_size = min(10000, len(list(raw_trainset.all_ratings())))
     
     # Use a smaller test size and fewer iterations for faster training
     trainset, testset = surprise_train_test_split(data, test_size=0.1, random_state=42)
