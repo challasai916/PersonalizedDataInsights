@@ -199,8 +199,9 @@ elif page == "User Behavior Analysis":
                 
                 elif feature in categorical_cols:
                     st.subheader(f"Bar Chart for {feature}")
-                    fig = px.bar(data[feature].value_counts().reset_index(), 
-                                x='index', y=feature)
+                    value_counts_df = data[feature].value_counts().reset_index()
+                    value_counts_df.columns = [feature, 'count']
+                    fig = px.bar(value_counts_df, x=feature, y='count')
                     st.plotly_chart(fig)
         
         elif analysis_type == "Bivariate Analysis":
