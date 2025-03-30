@@ -12,7 +12,6 @@ import time
 # Import custom modules
 import data_processing as dp
 import visualization as viz
-import recommendation as rec
 import utils
 
 # Page configuration
@@ -47,8 +46,7 @@ st.sidebar.title("Navigation")
 page = st.sidebar.radio(
     "Go to",
     ["Data Upload & Processing", "User Behavior Analysis", 
-     "User Segmentation", "Recommendation Engine", 
-     "A/B Testing & Evaluation", "Documentation"]
+     "User Segmentation", "Documentation"]
 )
 
 # Data Upload & Processing Page
@@ -705,746 +703,209 @@ elif page == "User Segmentation":
                     st.plotly_chart(fig)
 
 # Recommendation Engine Page
-elif page == "Recommendation Engine":
-    st.header("Recommendation Engine")
-
-    if st.session_state.data is None:
-        st.warning("Please upload data first in the 'Data Upload & Processing' page.")
-    else:
-        data = st.session_state.processed_data if st.session_state.processed_data is not None else st.session_state.data
-
-        # Recommendation method selection
-        rec_method = st.selectbox(
-            "Choose Recommendation Method",
-            ["Collaborative Filtering", "Content-Based Filtering", "Segment-Based Recommendations", "Popular Items"]
-        )
-
-        if rec_method == "Collaborative Filtering":
-            st.subheader("Collaborative Filtering Recommendations")
-
-            # Identify user and item columns
-            id_cols = [col for col in data.columns if 'id' in col.lower() or 'user' in col.lower() or 'customer' in col.lower()]
-            user_col = st.selectbox("Select user/customer ID column", id_cols if id_cols else data.columns)
-
-            item_cols = [col for col in data.columns if 'item' in col.lower() or 'product' in col.lower() or 'content' in col.lower()]
-            item_col = st.selectbox("Select item/product ID column", item_cols if item_cols else [col for col in data.columns if col != user_col])
-
-            # Rating column
-            rating_cols = [col for col in data.columns if 'rating' in col.lower() or 'score' in col.lower() or 'feedback' in col.lower()]
-            rating_col = st.selectbox("Select rating/interaction column", rating_cols if rating_cols else [col for col in data.select_dtypes(include=['int64', 'float64']).columns if col not in [user_col, item_col]])
-
-            # Algorithm parameters
-            st.subheader("Algorithm Parameters")
-            n_factors = st.slider("Number of latent factors", 5, 100, 20)
-            n_recommendations = st.slider("Number of recommendations to generate", 3, 20, 5)
-
-            # Generate recommendations
-            if st.button("Generate Collaborative Filtering Recommendations"):
-                with st.spinner("Training recommendation model and generating recommendations..."):
-                    try:
-                        # Prepare data for collaborative filtering
-                        cf_data = data[[user_col, item_col, rating_col]].copy()
-
-                        # Train model and get recommendations
-                        user_recs, model_evaluation = rec.collaborative_filtering_recommendations(
-                            cf_data, user_col, item_col, rating_col, n_factors, n_recommendations)
-
-                        # Store recommendations in session state
-                        st.session_state.recommendations = user_recs
-
-                        # Display model evaluation
-                        st.subheader("Model Evaluation")
-                        st.write(f"RMSE: {model_evaluation['rmse']:.4f}")
-                        st.write(f"MAE: {model_evaluation['mae']:.4f}")
-
-                        # Display recommendations for a sample user
-                        st.subheader("Sample Recommendations")
-
-                        # Let user select a specific user to see recommendations for
-                        all_users = cf_data[user_col].unique()
-                        selected_user = st.selectbox("Select a user to view recommendations", all_users)
-
-                        if selected_user in user_recs:
-                            recs_for_user = user_recs[selected_user]
-                            st.write(f"Top {len(recs_for_user)} recommendations for user {selected_user}:")
-
-                            # Display as table
-                            rec_df = pd.DataFrame(recs_for_user, columns=["Item", "Predicted Rating"])
-                            st.dataframe(rec_df)
-
-                            # Bar chart of recommendations
-                            fig = px.bar(rec_df, x="Item", y="Predicted Rating", 
-                                       title=f"Recommended Items for User {selected_user}")
-                            st.plotly_chart(fig)
-                        else:
-                            st.warning(f"No recommendations available for user {selected_user}.")
-
-                    except Exception as e:
-                        st.error(f"Error generating recommendations: {e}")
-
-        elif rec_method == "Content-Based Filtering":
-            st.subheader("Content-Based Filtering Recommendations")
-
-            # Identify item columns
-            item_cols = [col for col in data.columns if 'item' in col.lower() or 'product' in col.lower() or 'content' in col.lower()]
-            item_col = st.selectbox("Select item/product ID column", item_cols if item_cols else data.columns)
-
-            # Feature columns
-            feature_cols = st.multiselect(
-                "Select feature columns to use for content filtering",
-                [col for col in data.columns if col != item_col],
-                default=[col for col in data.columns if col != item_col][:min(5, len(data.columns)-1)]
-            )
-
-            # Generate recommendations
-            if feature_cols and st.button("Generate Content-Based Recommendations"):
-                with st.spinner("Computing content similarities and generating recommendations..."):
-                    try:
-                        # Create content profiles and compute similarities
-                        item_similarities, item_features = rec.content_based_recommendations(
-                            data, item_col, feature_cols)
-
-                        # Store in session state (in a different format than CF)
-                        st.session_state.recommendations = {"content_based": item_similarities}
-
-                        # Display sample item similarities
-                        st.subheader("Item Similarity Analysis")
-
-                        # Let user select an item to see similar items
-                        all_items = data[item_col].unique()
-                        selected_item = st.selectbox("Select an item to find similar items", all_items)
-
-                        if selected_item in item_similarities:
-                            similar_items = item_similarities[selected_item]
-
-                            st.write(f"Top similar items to {selected_item}:")
-
-                            # Display as table
-                            sim_df = pd.DataFrame(similar_items, columns=["Item", "Similarity Score"])
-                            st.dataframe(sim_df)
-
-                            # Bar chart of similar items
-                            fig = px.bar(sim_df, x="Item", y="Similarity Score", 
-                                       title=f"Items Similar to {selected_item}")
-                            st.plotly_chart(fig)
-
-                            # Show feature comparison
-                            st.subheader("Feature Comparison")
-                            item_feature_values = item_features.loc[[selected_item] + sim_df["Item"].tolist()[:3]]
-
-                            # Radar chart of features
-                            features_to_plot = item_feature_values.columns
-                            fig = go.Figure()
-
-                            for idx, item_id in enumerate(item_feature_values.index):
-                                fig.add_trace(go.Scatterpolar(
-                                    r=item_feature_values.loc[item_id].values,
-                                    theta=features_to_plot,
-                                    fill='toself',
-                                    name=f"Item {item_id}"
-                                ))
-
-                            fig.update_layout(
-                                polar=dict(
-                                    radialaxis=dict(
-                                        visible=True,
-                                        range=[0, 1]
-                                    )),
-                                showlegend=True,
-                                title="Feature Comparison of Similar Items"
-                            )
-
-                            st.plotly_chart(fig)
-                        else:
-                            st.warning(f"Item {selected_item} not found in similarity matrix.")
-
-                    except Exception as e:
-                        st.error(f"Error generating content-based recommendations: {e}")
-
-        elif rec_method == "Segment-Based Recommendations":
-            st.subheader("Segment-Based Recommendations")
-
-            if st.session_state.user_segments is None:
-                st.warning("Please create user segments first in the 'User Segmentation' page.")
-            else:
-                segmented_data = st.session_state.user_segments
-
-                # Check if segment column exists
-                if 'segment' not in segmented_data.columns and 'cluster' not in segmented_data.columns and 'rfm_segment' not in segmented_data.columns:
-                    st.error("Segment information not found in the segmented data. Please perform segmentation first.")
-                else:
-                    # Determine segment column
-                    segment_col = 'segment' if 'segment' in segmented_data.columns else ('cluster' if 'cluster' in segmented_data.columns else 'rfm_segment')
-
-                    # Display available segments
-                    st.write(f"Available segments: {', '.join(map(str, segmented_data[segment_col].unique()))}")
-
-                    # Identify item columns
-                    item_cols = [col for col in segmented_data.columns if 'item' in col.lower() or 'product' in col.lower() or 'content' in col.lower()]
-                    item_col = st.selectbox("Select item/product ID column", item_cols if item_cols else [col for col in segmented_data.columns if col != segment_col])
-
-                    # Rating/interaction column
-                    interaction_cols = [col for col in segmented_data.columns if 'rating' in col.lower() or 'score' in col.lower() or 'view' in col.lower() or 'purchase' in col.lower()]
-                    interaction_col = st.selectbox("Select interaction column", interaction_cols if interaction_cols else [col for col in segmented_data.select_dtypes(include=['int64', 'float64']).columns if col != segment_col and col != item_col])
-
-                    # User ID column
-                    id_cols = [col for col in segmented_data.columns if 'id' in col.lower() or 'user' in col.lower() or 'customer' in col.lower()]
-                    user_col = st.selectbox("Select user ID column", id_cols if id_cols else [col for col in segmented_data.columns if col not in [segment_col, item_col, interaction_col]])
-
-                    if st.button("Generate Segment-Based Recommendations"):
-                        with st.spinner("Generating segment-based recommendations..."):
-                            try:
-                                # Get recommendations by segment
-                                segment_recommendations = rec.segment_based_recommendations(
-                                    segmented_data, segment_col, user_col, item_col, interaction_col)
-
-                                # Store in session state
-                                st.session_state.recommendations = segment_recommendations
-
-                                # Display recommendations by segment
-                                st.subheader("Top Items by Segment")
-
-                                for segment, items in segment_recommendations.items():
-                                    with st.expander(f"Segment: {segment}"):
-                                        # Display as table
-                                        rec_df = pd.DataFrame(items, columns=["Item", "Score"])
-                                        st.dataframe(rec_df)
-
-                                        # Bar chart of top items
-                                        fig = px.bar(rec_df, x="Item", y="Score", 
-                                                   title=f"Top Items for Segment: {segment}")
-                                        st.plotly_chart(fig)
-
-                                # Allow recommending for a specific user
-                                st.subheader("Recommendations for Specific User")
-
-                                # Let user select a specific user
-                                all_users = segmented_data[user_col].unique()
-                                selected_user = st.selectbox("Select a user to get recommendations", all_users)
-
-                                # Get user's segment
-                                user_segment = segmented_data[segmented_data[user_col] == selected_user][segment_col].iloc[0]
-
-                                st.write(f"User {selected_user} belongs to segment: {user_segment}")
-
-                                if user_segment in segment_recommendations:
-                                    st.write(f"Recommended items for user {selected_user} based on segment {user_segment}:")
-
-                                    # Display recommendations
-                                    rec_df = pd.DataFrame(segment_recommendations[user_segment], columns=["Item", "Score"])
-                                    st.dataframe(rec_df)
-
-                            except Exception as e:
-                                st.error(f"Error generating segment-based recommendations: {e}")
-
-        elif rec_method == "Popular Items":
-            st.subheader("Popular Items Recommendation")
-
-            # Identify item and interaction columns
-            item_cols = [col for col in data.columns if 'item' in col.lower() or 'product' in col.lower() or 'content' in col.lower()]
-            item_col = st.selectbox("Select item/product ID column", item_cols if item_cols else data.columns)
-
-            interaction_cols = [col for col in data.columns if 'rating' in col.lower() or 'score' in col.lower() or 'view' in col.lower() or 'purchase' in col.lower()]
-            interaction_col = st.selectbox("Select interaction column", interaction_cols if interaction_cols else [col for col in data.select_dtypes(include=['int64', 'float64']).columns if col != item_col])
-
-            n_recommendations = st.slider("Number of popular items to show", 5, 50, 10)
-
-            if st.button("Find Popular Items"):
-                with st.spinner("Finding popular items..."):
-                    try:
-                        # Get popular items
-                        popular_items = rec.popular_items_recommendations(
-                            data, item_col, interaction_col, n_recommendations)
-
-                        # Store in session state
-                        st.session_state.recommendations = {"popular": popular_items}
-
-                        # Display popular items
-                        st.subheader(f"Top {n_recommendations} Popular Items")
-
-                        # Display as table
-                        pop_df = pd.DataFrame(popular_items, columns=["Item", "Popularity Score"])
-                        st.dataframe(pop_df)
-
-                        # Bar chart of popular items
-                        fig = px.bar(pop_df, x="Item", y="Popularity Score", 
-                                   title=f"Top {n_recommendations} Popular Items")
-                        st.plotly_chart(fig)
-
-                    except Exception as e:
-                        st.error(f"Error finding popular items: {e}")
-
-# A/B Testing & Evaluation Page
-elif page == "A/B Testing & Evaluation":
-    st.header("A/B Testing & Evaluation")
-
-    # Main tabs
-    evaluation_tab, ab_testing_tab = st.tabs(["Recommendation Evaluation", "A/B Testing Simulation"])
-
-    with evaluation_tab:
-        st.subheader("Evaluate Recommendation Performance")
-
-        if st.session_state.recommendations is None:
-            st.warning("Please generate recommendations first in the 'Recommendation Engine' page.")
-        else:
-            # Let user select evaluation metrics
-            metrics = st.multiselect(
-                "Select evaluation metrics",
-                ["Precision", "Recall", "NDCG", "Diversity", "Coverage"],
-                default=["Precision", "Recall"]
-            )
-
-            if st.session_state.data is not None:
-                data = st.session_state.processed_data if st.session_state.processed_data is not None else st.session_state.data
-
-                # Identify user, item, and rating columns
-                id_cols = [col for col in data.columns if 'id' in col.lower() or 'user' in col.lower() or 'customer' in col.lower()]
-                user_col = st.selectbox("Select user ID column", id_cols if id_cols else data.columns)
-
-                item_cols = [col for col in data.columns if 'item' in col.lower() or 'product' in col.lower() or 'content' in col.lower()]
-                item_col = st.selectbox("Select item ID column", item_cols if item_cols else [col for col in data.columns if col != user_col])
-
-                rating_cols = [col for col in data.columns if 'rating' in col.lower() or 'score' in col.lower() or 'feedback' in col.lower()]
-                rating_col = st.selectbox("Select rating column", rating_cols if rating_cols else [col for col in data.select_dtypes(include=['int64', 'float64']).columns if col not in [user_col, item_col]])
-
-                if st.button("Evaluate Recommendations"):
-                    with st.spinner("Evaluating recommendation performance..."):
-                        try:
-                            # Get recommendations
-                            recommendations = st.session_state.recommendations
-
-                            # Evaluate recommendations
-                            eval_results = rec.evaluate_recommendations(
-                                data, recommendations, user_col, item_col, rating_col, metrics)
-
-                            # Display evaluation results
-                            st.subheader("Evaluation Results")
-
-                            for metric, value in eval_results.items():
-                                st.metric(label=metric, value=f"{value:.4f}")
-
-                            # Plot results
-                            eval_df = pd.DataFrame({
-                                'Metric': list(eval_results.keys()),
-                                'Value': list(eval_results.values())
-                            })
-
-                            fig = px.bar(eval_df, x='Metric', y='Value', 
-                                       title="Recommendation Evaluation Metrics")
-                            st.plotly_chart(fig)
-
-                            # Detailed evaluation by user segment if available
-                            if st.session_state.user_segments is not None:
-                                st.subheader("Evaluation by User Segment")
-
-                                segmented_data = st.session_state.user_segments
-                                segment_col = 'segment' if 'segment' in segmented_data.columns else ('cluster' if 'cluster' in segmented_data.columns else 'rfm_segment')
-
-                                if segment_col in segmented_data.columns:
-                                    segment_eval = rec.evaluate_by_segment(
-                                        data, segmented_data, segment_col, recommendations, 
-                                        user_col, item_col, rating_col, metrics)
-
-                                    # Display segment evaluation
-                                    for segment, segment_results in segment_eval.items():
-                                        with st.expander(f"Segment: {segment}"):
-                                            for metric, value in segment_results.items():
-                                                st.metric(label=metric, value=f"{value:.4f}")
-
-                        except Exception as e:
-                            st.error(f"Error evaluating recommendations: {e}")
-
-    with ab_testing_tab:
-        st.subheader("A/B Testing Simulation")
-
-        # A/B testing options
-        test_scenario = st.selectbox(
-            "Select A/B Testing Scenario",
-            ["Compare Recommendation Algorithms", "Test Different Personalization Strategies", 
-             "Upload A/B Test Results"]
-        )
-
-        if test_scenario == "Compare Recommendation Algorithms":
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.subheader("Algorithm A (Control)")
-                algo_a = st.selectbox(
-                    "Select first algorithm",
-                    ["Collaborative Filtering", "Content-Based", "Popularity-Based"]
-                )
-
-                # Parameters for Algorithm A
-                if algo_a == "Collaborative Filtering":
-                    n_factors_a = st.slider("Number of factors (A)", 10, 100, 20)
-                elif algo_a == "Content-Based":
-                    similarity_a = st.selectbox("Similarity metric (A)", ["cosine", "jaccard", "euclidean"])
-                else:
-                    timeframe_a = st.selectbox("Popularity timeframe (A)", ["1 day", "1 week", "1 month", "all time"])
-
-            with col2:
-                st.subheader("Algorithm B (Test)")
-                algo_b = st.selectbox(
-                    "Select second algorithm",
-                    ["Collaborative Filtering", "Content-Based", "Popularity-Based"],
-                    index=1
-                )
-
-                # Parameters for Algorithm B
-                if algo_b == "Collaborative Filtering":
-                    n_factors_b = st.slider("Number of factors (B)", 10, 100, 50)
-                elif algo_b == "Content-Based":
-                    similarity_b = st.selectbox("Similarity metric (B)", ["cosine", "jaccard", "euclidean"])
-                else:
-                    timeframe_b = st.selectbox("Popularity timeframe (B)", ["1 day", "1 week", "1 month", "all time"])
-
-            # Simulation parameters
-            st.subheader("Simulation Parameters")
-
-            sample_size = st.slider("User sample size", 100, 10000, 1000)
-            success_metric = st.selectbox(
-                "Success metric",
-                ["Click-through rate", "Conversion rate", "Average order value", "User engagement"]
-            )
-
-            if st.button("Run A/B Test Simulation"):
-                with st.spinner("Simulating A/B test..."):
-                    # Simulate A/B test results
-                    ab_results = rec.simulate_ab_test(
-                        algo_a, algo_b, sample_size, success_metric)
-
-                    # Store in session state
-                    st.session_state.experiment_results = ab_results
-
-                    # Display test results
-                    st.subheader("A/B Test Results")
-
-                    col1, col2, col3 = st.columns(3)
-
-                    with col1:
-                        st.metric(
-                            label=f"{success_metric} (A)",
-                            value=f"{ab_results['control_rate']:.4f}"
-                        )
-
-                    with col2:
-                        st.metric(
-                            label=f"{success_metric} (B)",
-                            value=f"{ab_results['treatment_rate']:.4f}",
-                            delta=f"{ab_results['lift']:.2%}"
-                        )
-
-                    with col3:
-                        st.metric(
-                            label="Statistical Significance",
-                            value=f"p = {ab_results['p_value']:.4f}"
-                        )
-
-                    # Visualization of results
-                    st.subheader("Visual Comparison")
-
-                    # Bar chart comparison
-                    comparison_df = pd.DataFrame({
-                        'Algorithm': ['Algorithm A (Control)', 'Algorithm B (Test)'],
-                        success_metric: [ab_results['control_rate'], ab_results['treatment_rate']]
-                    })
-
-                    fig = px.bar(comparison_df, x='Algorithm', y=success_metric,
-                               title=f"Comparison of {success_metric}")
-                    st.plotly_chart(fig)
-
-                    # Distribution plot
-                    if 'control_samples' in ab_results and 'treatment_samples' in ab_results:
-                        st.subheader("Distribution of Individual Results")
-
-                        # Combine samples for plotting
-                        control_df = pd.DataFrame({
-                            'value': ab_results['control_samples'],
-                            'group': 'Control'
-                        })
-
-                        treatment_df = pd.DataFrame({
-                            'value': ab_results['treatment_samples'],
-                            'group': 'Treatment'
-                        })
-
-                        combined_df = pd.concat([control_df, treatment_df])
-
-                        fig = px.histogram(combined_df, x="value", color="group", 
-                                         barmode="overlay", opacity=0.7,
-                                         title=f"Distribution of {success_metric}")
-                        st.plotly_chart(fig)
-
-                    # Statistical analysis
-                    st.subheader("Statistical Analysis")
-
-                    significance = "significant" if ab_results['p_value'] < 0.05 else "not significant"
-                    st.write(f"The difference between Algorithm A and Algorithm B is statistically {significance} (p = {ab_results['p_value']:.4f}).")
-
-                    st.write(f"Lift: {ab_results['lift']:.2%}")
-                    st.write(f"Confidence interval: [{ab_results['confidence_interval'][0]:.4f}, {ab_results['confidence_interval'][1]:.4f}]")
-
-                    # Recommendation
-                    st.subheader("Recommendation")
-
-                    if ab_results['lift'] > 0 and ab_results['p_value'] < 0.05:
-                        st.success(f"Algorithm B outperforms Algorithm A with a statistically significant lift of {ab_results['lift']:.2%}. Consider implementing Algorithm B.")
-                    elif ab_results['lift'] < 0 and ab_results['p_value'] < 0.05:
-                        st.error(f"Algorithm A outperforms Algorithm B with a statistically significant lift of {-ab_results['lift']:.2%}. Stick with Algorithm A.")
-                    else:
-                        st.info("No statistically significant difference detected between the algorithms. Consider running the test longer or with more users.")
-
-        elif test_scenario == "Test Different Personalization Strategies":
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.subheader("Strategy A (Control)")
-                strategy_a = st.selectbox(
-                    "Select first strategy",
-                    ["No personalization", "Segment-based personalization", "Individual personalization"]
-                )
-
-                # Parameters for Strategy A
-                if strategy_a == "Segment-based personalization":
-                    n_segments_a = st.slider("Number of segments (A)", 2, 10, 4)
-                elif strategy_a == "Individual personalization":
-                    depth_a = st.slider("Personalization depth (A)", 1, 10, 5)
-
-            with col2:
-                st.subheader("Strategy B (Test)")
-                strategy_b = st.selectbox(
-                    "Select second strategy",
-                    ["No personalization", "Segment-based personalization", "Individual personalization"],
-                    index=1
-                )
-
-                # Parameters for Strategy B
-                if strategy_b == "Segment-based personalization":
-                    n_segments_b = st.slider("Number of segments (B)", 2, 10, 6)
-                elif strategy_b == "Individual personalization":
-                    depth_b = st.slider("Personalization depth (B)", 1, 10, 7)
-
-            # Simulation parameters
-            st.subheader("Simulation Parameters")
-
-            sample_size = st.slider("User sample size for strategies", 100, 10000, 2000)
-            success_metrics = st.multiselect(
-                "Success metrics",
-                ["Click-through rate", "Conversion rate", "Average order value", "User engagement time", "Retention"],
-                default=["Click-through rate", "Conversion rate"]
-            )
-
-            if st.button("Run Strategy A/B Test"):
-                with st.spinner("Simulating personalization strategy test..."):
-                    # Simulate A/B test results for each metric
-                    strategy_results = {}
-
-                    for metric in success_metrics:
-                        result = rec.simulate_ab_test(
-                            strategy_a, strategy_b, sample_size, metric)
-                        strategy_results[metric] = result
-
-                    # Store in session state
-                    st.session_state.experiment_results = strategy_results
-
-                    # Display overview
-                    st.subheader("Test Results Overview")
-
-                    # Create summary table
-                    summary_data = []
-
-                    for metric, result in strategy_results.items():
-                        summary_data.append({
-                            'Metric': metric,
-                            'Control Value': result['control_rate'],
-                            'Test Value': result['treatment_rate'],
-                            'Lift': result['lift'],
-                            'p-value': result['p_value'],
-                            'Significant': result['p_value'] < 0.05
-                        })
-
-                    summary_df = pd.DataFrame(summary_data)
-                    st.dataframe(summary_df)
-
-                    # Visualize results
-                    st.subheader("Visual Comparison by Metric")
-
-                    for metric, result in strategy_results.items():
-                        with st.expander(f"{metric} Results"):
-                            col1, col2 = st.columns(2)
-
-                            with col1:
-                                st.metric(
-                                    label=f"{metric} (Strategy A)",
-                                    value=f"{result['control_rate']:.4f}"
-                                )
-
-                                st.metric(
-                                    label=f"{metric} (Strategy B)",
-                                    value=f"{result['treatment_rate']:.4f}",
-                                    delta=f"{result['lift']:.2%}"
-                                )
-
-                                significance = "significant" if result['p_value'] < 0.05 else "not significant"
-                                st.write(f"Statistically {significance} (p = {result['p_value']:.4f})")
-
-                            with col2:
-                                # Comparison bar chart
-                                comparison_df = pd.DataFrame({
-                                    'Strategy': ['Strategy A', 'Strategy B'],
-                                    metric: [result['control_rate'], result['treatment_rate']]
-                                })
-
-                                fig = px.bar(comparison_df, x='Strategy', y=metric,
-                                           title=f"Comparison of {metric}")
-                                st.plotly_chart(fig)
-
-                    # Overall recommendation
-                    st.subheader("Overall Recommendation")
-
-                    # Count significant improvements
-                    sig_improvements = sum(1 for r in strategy_results.values() 
-                                         if r['lift'] > 0 and r['p_value'] < 0.05)
-                    sig_declines = sum(1 for r in strategy_results.values() 
-                                     if r['lift'] < 0 and r['p_value'] < 0.05)
-
-                    if sig_improvements > sig_declines:
-                        st.success(f"Strategy B shows significant improvements in {sig_improvements} out of {len(success_metrics)} metrics. Consider implementing Strategy B.")
-                    elif sig_declines > sig_improvements:
-                        st.error(f"Strategy B shows significant declines in {sig_declines} out of {len(success_metrics)} metrics. Stick with Strategy A.")
-                    else:
-                        st.info("Results are mixed or not significant. Consider refining the strategies or running a longer test.")
-
-        elif test_scenario == "Upload A/B Test Results":
-            st.subheader("Upload External A/B Test Results")
-            st.write("If you have conducted A/B tests externally, you can upload the results for analysis.")
-
-            ab_file = st.file_uploader("Upload A/B test results (CSV format)", type="csv")
-
-            if ab_file is not None:
-                try:
-                    ab_data = pd.read_csv(ab_file)
-
-                    # Display uploaded data
-                    st.subheader("Uploaded A/B Test Data")
-                    st.dataframe(ab_data.head())
-
-                    # Columns to use for analysis
-                    col1, col2, col3 = st.columns(3)
-
-                    with col1:
-                        group_col = st.selectbox(
-                            "Column identifying test groups",
-                            ab_data.columns
-                        )
-
-                    with col2:
-                        metric_col = st.selectbox(
-                            "Column with the metric value",
-                            [c for c in ab_data.columns if c != group_col]
-                        )
-
-                    with col3:
-                        user_col = st.selectbox(
-                            "Column with user ID (optional)",
-                            ["None"] + [c for c in ab_data.columns if c not in [group_col, metric_col]]
-                        )
-
-                    # Check for test group values
-                    group_values = ab_data[group_col].unique()
-
-                    if len(group_values) != 2:
-                        st.warning(f"Expected 2 test groups, but found {len(group_values)}. Please ensure your data has exactly 2 groups (control and treatment).")
-
-                    control_group = st.selectbox(
-                        "Select control group value",
-                        group_values
+elif page == "Documentation":
+    st.header("Documentation")
+    
+    st.subheader("About This Platform")
+    st.write("""
+    The Personalization Data Science Platform is a tool designed to help analyze user behavior 
+    and implement personalization features on your online platform. 
+    
+    This application allows you to:
+    1. Upload and process user behavior data
+    2. Analyze patterns and trends in user behavior
+    3. Create user segments based on behavior or characteristics
+    """)
+    
+    st.subheader("How to Use the Platform")
+    
+    st.markdown("""
+    #### 1. Data Upload & Processing
+    - Upload your own CSV or JSON data file
+    - Use sample datasets if you don't have your own data
+    - Apply data processing operations like handling missing values and normalization
+    
+    #### 2. User Behavior Analysis
+    - Explore distributions and relationships in your data
+    - Analyze user engagement metrics
+    - Identify temporal patterns in user activity
+    - Discover behavioral clusters in your user base
+    
+    #### 3. User Segmentation
+    - Create user segments using different methods:
+      - RFM Analysis (Recency, Frequency, Monetary)
+      - K-means clustering
+      - Rule-based segmentation
+    
+    #### Need Help?
+    If you need assistance or have questions about using this platform, 
+    please contact support at support@personalization-platform.com.
+    """)
+    
+    st.subheader("Downloading Data")
+    st.markdown("""
+    Our platform now includes functionality to collect data from online sources. Using web scraping 
+    technologies, you can gather data from websites to analyze and enhance your personalization strategies.
+    
+    #### How to Use Web Scraping:
+    1. Enter the URL of the website you want to collect data from
+    2. The system will extract the main text content
+    3. Process and analyze this data to identify user preferences and behaviors
+    
+    #### Example Use Cases:
+    - Collect product reviews to understand customer preferences
+    - Gather news articles related to user interests
+    - Extract social media trends relevant to your audience
+    """)
+
+    # Web Scraping Demo
+    st.subheader("Try Web Scraping")
+    
+    url = st.text_input("Enter a website URL to extract content", "https://example.com")
+    
+    if st.button("Extract Content"):
+        with st.spinner("Extracting content from the website..."):
+            try:
+                # Import the web scraping function
+                import trafilatura
+                
+                # Fetch and extract the content
+                downloaded = trafilatura.fetch_url(url)
+                if downloaded:
+                    text = trafilatura.extract(downloaded)
+                    
+                    # Display the extracted content
+                    st.subheader("Extracted Content")
+                    st.write(text[:1000] + "..." if len(text) > 1000 else text)
+                    
+                    # Option to download the full content
+                    full_text = text
+                    st.download_button(
+                        label="Download Full Content",
+                        data=full_text,
+                        file_name="extracted_content.txt",
+                        mime="text/plain"
                     )
+                    
+                    # Show data analysis options
+                    st.subheader("Analyze This Content")
+                    st.write("The extracted content can be used for various personalization analyses:")
+                    
+                    analysis_option = st.selectbox(
+                        "Select analysis type",
+                        ["Basic Text Statistics", "Sentiment Analysis", "Topic Extraction"]
+                    )
+                    
+                    if analysis_option == "Basic Text Statistics":
+                        # Simple text statistics
+                        word_count = len(text.split())
+                        sent_count = len(text.split('.'))
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Word Count", word_count)
+                        with col2:
+                            st.metric("Sentence Count", sent_count)
+                        with col3:
+                            st.metric("Avg. Words per Sentence", round(word_count/max(1, sent_count), 1))
+                    
+                    elif analysis_option == "Sentiment Analysis":
+                        st.info("Sentiment analysis would provide emotion and tone insights from the content.")
+                        
+                    elif analysis_option == "Topic Extraction":
+                        st.info("Topic extraction would identify key themes and subjects in the content.")
+                else:
+                    st.error("Could not download content from the provided URL.")
+            except Exception as e:
+                st.error(f"Error extracting content: {e}")
 
-                    treatment_group = [g for g in group_values if g != control_group][0]
+    # Web Data Application
+    st.subheader("Example Applications")
+    
+    st.markdown("""
+    ### Data Collection Use Cases
+    
+    Here are some examples of how web scraping can be applied for personalization:
+    
+    1. **Content Analysis**
+       - Scrape articles from news sites to analyze trending topics
+       - Extract product descriptions to enhance content-based recommendations
+       - Gather social media content for sentiment analysis
+       
+    2. **Competitive Intelligence**
+       - Monitor competitor pricing
+       - Track product features across different websites
+       - Analyze market trends and new product launches
+       
+    3. **User-Generated Content**
+       - Collect reviews and ratings to understand user preferences
+       - Gather social media mentions for brand sentiment analysis
+       - Extract forum discussions to identify emerging user needs
+    
+    ### Getting Started with Web Data Collection
+    
+    1. Identify relevant data sources for your specific use case
+    2. Use the web scraping tool to extract content
+    3. Process and clean the extracted data
+    4. Integrate the data into your personalization strategy
+    """)
+    
+    # Add a divider
+    st.markdown("---")
 
-                    if st.button("Analyze A/B Test Results"):
-                        with st.spinner("Analyzing test results..."):
-                            # Analyze the test results
-                            analysis_results = rec.analyze_ab_test_results(
-                                ab_data, group_col, metric_col, control_group, treatment_group, 
-                                user_col if user_col != "None" else None)
+    # Create a web scraper utility function
+    st.subheader("Web Scraper Utility")
+    
+    st.write("""
+    This utility helps you create a reusable web scraper function that you can 
+    incorporate into your data collection pipeline.
+    """)
+    
+    code_sample = '''
+# Example code for a web scraper function
+import trafilatura
 
-                            # Store results
-                            st.session_state.experiment_results = analysis_results
-
-                            # Display results
-                            st.subheader("A/B Test Analysis Results")
-
-                            col1, col2, col3 = st.columns(3)
-
-                            with col1:
-                                st.metric(
-                                    label=f"Control Group ({control_group})",
-                                    value=f"{analysis_results['control_mean']:.4f}"
-                                )
-
-                            with col2:
-                                st.metric(
-                                    label=f"Treatment Group ({treatment_group})",
-                                    value=f"{analysis_results['treatment_mean']:.4f}",
-                                    delta=f"{analysis_results['relative_difference']:.2%}"
-                                )
-
-                            with col3:
-                                st.metric(
-                                    label="p-value",
-                                    value=f"{analysis_results['p_value']:.4f}"
-                                )
-
-                            # Visualizations
-                            st.subheader("Visual Analysis")
-
-                            # Group comparison
-                            fig = px.bar(
-                                x=[f"Control ({control_group})", f"Treatment ({treatment_group})"],
-                                y=[analysis_results['control_mean'], analysis_results['treatment_mean']],
-                                error_y=[analysis_results['control_se'], analysis_results['treatment_se']],
-                                title="Comparison of Group Means with Standard Error"
-                            )
-                            st.plotly_chart(fig)
-
-                            # Distribution comparison if user data is available
-                            if user_col != "None":
-                                fig = px.histogram(
-                                    ab_data, x=metric_col, color=group_col,
-                                    barmode="overlay", opacity=0.7,
-                                    title="Distribution of Metric by Test Group"
-                                )
-                                st.plotly_chart(fig)
-
-                            # Statistical details
-                            st.subheader("Statistical Details")
-
-                            significance = "significant" if analysis_results['p_value'] < 0.05 else "not significant"
-                            st.write(f"The difference between the control and treatment groups is statistically {significance} (p = {analysis_results['p_value']:.4f}).")
-
-                            st.write(f"Absolute difference: {analysis_results['absolute_difference']:.4f}")
-                            st.write(f"Relative difference: {analysis_results['relative_difference']:.2%}")
-                            st.write(f"95% Confidence Interval: [{analysis_results['ci_lower']:.4f}, {analysis_results['ci_upper']:.4f}]")
-
-                            # Sample sizes
-                            st.write(f"Control group size: {analysis_results['control_size']}")
-                            st.write(f"Treatment group size: {analysis_results['treatment_size']}")
-
-                            # Conclusion and recommendation
-                            st.subheader("Conclusion")
-
-                            if analysis_results['p_value'] < 0.05:
-                                if analysis_results['relative_difference'] > 0:
-                                    st.success(f"The treatment ({treatment_group}) shows a statistically significant improvement of {analysis_results['relative_difference']:.2%} over the control ({control_group}). Recommend implementing the treatment.")
-                                else:
-                                    st.error(f"The treatment ({treatment_group}) shows a statistically significant decline of {-analysis_results['relative_difference']:.2%} compared to the control ({control_group}). Recommend staying with the control.")
-                            else:
-                                st.info("No statistically significant difference detected between the control and treatment groups. Consider running the test longer or with more users.")
-
-                except Exception as e:
-                    st.error(f"Error analyzing A/B test results: {e}")
+def scrape_website(url):
+    """
+    Extract main text content from a website URL.
+    
+    Parameters:
+        url (str): The URL of the website to scrape
+        
+    Returns:
+        str: The extracted text content
+    """
+    downloaded = trafilatura.fetch_url(url)
+    if downloaded:
+        return trafilatura.extract(downloaded)
+    else:
+        return "Could not download content from URL"
+    '''
+    
+    st.code(code_sample, language="python")
+    
+    st.write("""
+    #### How to Use This Function:
+    
+    ```python
+    # Example usage
+    url = "https://example.com/article"
+    content = scrape_website(url)
+    
+    # Process the content
+    # ...
+    ```
+    
+    #### Important Considerations:
+    
+    - Always respect robots.txt and website terms of service
+    - Add appropriate delays between requests to avoid overloading servers
+    - Consider using an API if available instead of scraping
+    - Be aware of legal and ethical considerations when scraping content
+    """)
+    
+    # Add a divider for visual separation
+    st.markdown("---")
 
 # Documentation Page
 elif page == "Documentation":
