@@ -1,0 +1,11 @@
+matplotlib
+numpy
+pandas
+plotly
+scikit-learn
+scikit-surprise
+scipy
+seaborn
+streamlit
+surprise
+trafilatura
